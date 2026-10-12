@@ -40,8 +40,6 @@ Pass options after `-s --`, for example
 
 Then log out and back in.
 
-Undo with `~/.local/bin/ssh-askpass-trace-uninstall`.
-
 The installer:
 
 - refuses desktops other than GNOME and KDE unless run with `--force`
@@ -87,4 +85,4 @@ waiting for the signature.
 ~/.local/bin/ssh-askpass-trace-uninstall
 ```
 
-or run `uninstall-ssh-askpass-trace.sh` from this repo. Then log out and back in.
+Then log out and back in.
