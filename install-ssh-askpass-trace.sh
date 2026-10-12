@@ -13,6 +13,9 @@
 # Undo: ~/.local/bin/ssh-askpass-trace-uninstall
 set -euo pipefail
 
+# Wrapped in main so a truncated `curl | bash` download runs nothing.
+main() {
+
 bin_dir="$HOME/.local/bin"
 askpass="$bin_dir/ssh-askpass-trace"
 uninstaller="$bin_dir/ssh-askpass-trace-uninstall"
@@ -24,7 +27,7 @@ force=0
 for arg in "$@"; do
     case $arg in
         --force) force=1 ;;
-        *) echo "Usage: $0 [--force]" >&2; exit 2 ;;
+        *) echo "Usage: install-ssh-askpass-trace.sh [--force]" >&2; exit 2 ;;
     esac
 done
 
@@ -348,3 +351,6 @@ fi
 [[ $warnings -gt 0 ]] && echo "Installed with $warnings warning(s); review them above."
 echo "Done. Log out and back in so every app uses the new agent."
 echo "Undo with: $uninstaller"
+}
+
+main "$@"

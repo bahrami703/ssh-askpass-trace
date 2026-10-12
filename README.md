@@ -32,10 +32,15 @@ whole chain, for example:
 ## Install
 
 ```sh
-bash install-ssh-askpass-trace.sh
+curl -fsSL https://raw.githubusercontent.com/keyhana/ssh-askpass-trace/main/install-ssh-askpass-trace.sh | bash
 ```
 
+Pass options after `-s --`, for example
+`curl -fsSL ... | bash -s -- --force`.
+
 Then log out and back in.
+
+Undo with `~/.local/bin/ssh-askpass-trace-uninstall`.
 
 The installer:
 
