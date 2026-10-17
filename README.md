@@ -67,7 +67,14 @@ On macOS the installer:
   start `ssh-agent` (including the oh-my-zsh `ssh-agent` plugin), and about
   gpg-agent `enable-ssh-support`
 - writes the same helper to `~/.local/bin/ssh-askpass-trace`; it shows its
-  dialog with `osascript` and reads processes with `ps` and `lsof`
+  dialog with `osascript` and reads processes with `ps` and `lsof`. The
+  dialog's font is proportional, so the chain is shown more compactly:
+
+  ```
+  ssh -o SendEnv=GIT_PROTOCOL git@github.com git-upload-pack 'me/repo.git'  in ~/src/repo
+  ← git fetch --all
+  ← Visual Studio Code  in ~
+  ```
 - adds a LaunchAgent (`~/Library/LaunchAgents/com.github.keyhana.ssh-askpass-trace.plist`)
   that, at every login, sets `SSH_AUTH_SOCK=~/.ssh/ssh-agent.socket`,
   `SSH_ASKPASS` and `SSH_ASKPASS_REQUIRE=force` with `launchctl setenv` and
@@ -108,7 +115,6 @@ waiting for the signature.
   terminal.
 - **macOS:** apps already running at install time, and any that start at
   login before the LaunchAgent, keep the old `SSH_AUTH_SOCK` until restarted.
-- **macOS:** the dialog has no fixed-width font, so long command lines wrap.
 
 ## Uninstall
 

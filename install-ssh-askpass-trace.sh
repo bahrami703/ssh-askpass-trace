@@ -299,12 +299,27 @@ def run(args):
 
 
 def mac_processes():
-    """macOS: {pid: (ppid, command)} for every process, from a single ps call."""
+    """macOS: {pid: (ppid, program, args)} for every process.
+
+    ps prints the program path untruncated only as the last column, and the
+    path may contain spaces, so it takes one call for it and one for argv.
+    """
     procs = {}
-    for line in run(["ps", "-axww", "-o", "pid=,ppid=,command="]).splitlines():
+    for line in run(["ps", "-axww", "-o", "pid=,ppid=,comm="]).splitlines():
         fields = line.split(None, 2)
-        if len(fields) >= 2:
-            procs[int(fields[0])] = (int(fields[1]), fields[2] if len(fields) > 2 else "")
+        if len(fields) == 3:
+            procs[int(fields[0])] = (int(fields[1]), fields[2], "")
+    for line in run(["ps", "-axww", "-o", "pid=,command="]).splitlines():
+        fields = line.split(None, 1)
+        if len(fields) == 2 and int(fields[0]) in procs:
+            ppid, prog, _ = procs[int(fields[0])]
+            command = fields[1]
+            if command.startswith(prog):
+                args = command[len(prog):]
+            else:
+                # argv[0] set to something other than the program path.
+                args = command.partition(" ")[2]
+            procs[int(fields[0])] = (ppid, prog, args.strip())
     return procs
 
 
@@ -321,33 +336,59 @@ def mac_cwds(pids):
     return cwds
 
 
-def chain_info(pid):
-    """[(pid, cmd, cwd), ...] from pid up to (not including) init/launchd."""
-    chain = []
+def process_chain(pid):
     if MACOS:
-        procs = mac_processes()
-        while pid > 1 and pid in procs and len(chain) < 12:
-            ppid, cmd = procs[pid]
-            chain.append((pid, cmd, "?"))
-            pid = ppid
-        cwds = mac_cwds([p for p, _, _ in chain]) if chain else {}
-        return [(p, cmd, cwds.get(p, "?")) for p, cmd, _ in chain]
-    while pid > 1 and len(chain) < 12:
+        return mac_process_chain(pid)
+    lines = []
+    while pid > 1 and len(lines) < 12:
         info = proc_info(pid)
         if info is None:
             break
         cmd, ppid, cwd = info
-        chain.append((pid, cmd, cwd))
-        pid = ppid
-    return chain
-
-
-def process_chain(pid):
-    lines = []
-    for pid, cmd, cwd in chain_info(pid):
         if len(cmd) > 160:
             cmd = cmd[:157] + "..."
         lines.append(f"{pid}  {cmd}\n        cwd: {cwd}")
+        pid = ppid
+    return "\n".join(lines)
+
+
+def tilde(text):
+    home = os.path.expanduser("~")
+    return text.replace(home + "/", "~/") if text != home else "~"
+
+
+def mac_process_chain(pid):
+    """macOS: one line per process, child first, sized for the dialog.
+
+    The dialog font is proportional and the window narrow, so instead of PIDs
+    and a cwd line per process this shows the program name and arguments, home
+    as ~, and the cwd only where it changes. The app at the top of the chain
+    is shown by its bundle name ("Visual Studio Code", not "Electron").
+    """
+    procs = mac_processes()
+    pids = []
+    while pid > 1 and pid in procs and len(pids) < 12:
+        pids.append(pid)
+        pid = procs[pid][0]
+    cwds = mac_cwds(pids) if pids else {}
+    lines = []
+    last_cwd = None
+    for i, pid in enumerate(pids):
+        _, prog, args = procs[pid]
+        name = os.path.basename(prog).lstrip("-")  # "-zsh" is a login shell
+        if name == "login":
+            continue
+        if i == len(pids) - 1 and ".app/Contents/MacOS/" in prog:
+            name, args = os.path.basename(prog.split(".app/Contents/MacOS/")[0]), ""
+        cmd = tilde(f"{name} {args}".strip())
+        if len(cmd) > 72:
+            cmd = cmd[:71] + "…"
+        line = ("← " if lines else "") + cmd
+        cwd = cwds.get(pid, "?")
+        if cwd not in ("?", last_cwd):
+            line += "  in " + tilde(cwd)
+            last_cwd = cwd
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -399,22 +440,32 @@ def mac_agent_clients(agent_pid):
     return pids
 
 
+def mac_describe_trigger(parent):
+    """macOS version of describe_trigger: same logic, ps and lsof for /proc."""
+    parent_comm = os.path.basename(run(["ps", "-o", "comm=", "-p", str(parent)]).strip())
+    if parent_comm != "ssh-agent":
+        return "Triggered by (child first):", process_chain(parent)
+
+    chains = [process_chain(pid) for pid in mac_agent_clients(parent) if pid != parent]
+    if not chains:
+        return "Triggered by ssh-agent; no connected client found:", process_chain(parent)
+    return "Agent request from (child first):", "\n\n".join(chains)
+
+
 def describe_trigger():
     parent = os.getppid()
     if MACOS:
-        parent_comm = os.path.basename(run(["ps", "-o", "comm=", "-p", str(parent)]).strip())
-    else:
-        try:
-            with open(f"/proc/{parent}/comm") as f:
-                parent_comm = f.read().strip()
-        except OSError:
-            parent_comm = ""
+        return mac_describe_trigger(parent)
+    try:
+        with open(f"/proc/{parent}/comm") as f:
+            parent_comm = f.read().strip()
+    except OSError:
+        parent_comm = ""
     agent_sock = os.environ.get("SSH_AUTH_SOCK", "")
-    if parent_comm != "ssh-agent" or not (agent_sock or MACOS):
+    if parent_comm != "ssh-agent" or not agent_sock:
         return "Triggered by (child first):", process_chain(parent)
 
-    clients = mac_agent_clients(parent) if MACOS else agent_clients(agent_sock)
-    chains = [process_chain(pid) for pid in clients if pid != parent]
+    chains = [process_chain(pid) for pid in agent_clients(agent_sock) if pid != parent]
     if not chains:
         return "Triggered by ssh-agent; no connected client found:", process_chain(parent)
     return "Agent request from (child first):", "\n\n".join(chains)
